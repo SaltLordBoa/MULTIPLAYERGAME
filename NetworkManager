@@ -1,0 +1,292 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using Photon.Pun;
+using Photon.Realtime;
+using UnityEngine.UI;
+using TMPro;
+using UnityEngine.SceneManagement;
+public class NetworkManager : MonoBehaviourPunCallbacks
+{
+    [Header("Menus")]
+    //public PhotonView playerPrefab;
+    public static NetworkManager current;
+    public string gameVersion;
+    string networkStatus;
+    public TMP_InputField usernameInput;
+    public TextMeshProUGUI buttonJoin;
+    public TextMeshProUGUI buttonLeave;
+    public TextMeshProUGUI enterRoom;
+    //[SerializeField] private maxPlayers = 4;
+    public GameObject lobbyPanel;
+    public GameObject canvasPanel;
+    public GameObject photonPanel;
+
+
+    [Header("Players")]
+    public PlayerSpawner playerSpawner;
+    public CharacterSelect characterSelect;
+    public List<ReadyCheck> readyCheckList = new List<ReadyCheck>();
+    public ReadyCheck rcPrefab;
+    public Transform rcParent;
+
+
+
+    [Header("Rooms")]
+    public RoomItem roomItemPrefab;
+    List<RoomItem> roomItemsList = new List<RoomItem>();
+    public Transform contentObject;
+    public TextMeshProUGUI roomName;
+    public TMP_InputField roomInput;
+
+    public string chosenCharacter;
+
+
+    public float timeBetweenUpdates = 1.5f;
+    float nextUpdateTime;
+
+    private void Start()
+    {
+        if (current != null) 
+        {
+            Destroy(gameObject); 
+        }
+        else
+        {
+            current = this;
+            DontDestroyOnLoad(gameObject);
+        }
+    }
+
+    private void OnGUI()
+    {
+        GUILayout.Label(networkStatus); //Shows the status of the network
+    }
+
+    //Gets called when the player has connected to the master
+    public override void OnConnectedToMaster()
+    {
+        base.OnConnectedToMaster();
+        networkStatus = "Connected to Master";
+        PhotonNetwork.JoinLobby();
+    }
+
+    public void OnClickConnect()
+    {
+        if (usernameInput.text.Length >= 1)
+        {
+            PhotonNetwork.NickName = usernameInput.text; //sets player's nickname 
+            buttonJoin.text = "Connecting...";
+            PhotonNetwork.ConnectUsingSettings(); //Connect to Photon servers
+            PhotonNetwork.GameVersion = gameVersion; //Sets game version
+
+/*            networkStatus = "Connecting to Photon";*/
+        }
+    }
+
+    public void OnClickDisconnect()
+    {
+        buttonLeave.text = "Disconnecting..";
+        PhotonNetwork.Disconnect();
+        buttonJoin.text = "Connect";
+        networkStatus = "Disconnected";
+        buttonLeave.text = "Disconnect";
+        SceneManager.LoadScene("MainMenu");
+        //return to main menu scene
+    }
+
+
+    //Gets called when the player has joined a lobby
+    public override void OnJoinedLobby()
+    {
+        base.OnJoinedLobby();
+        networkStatus = "Joined Lobby";
+        lobbyPanel.SetActive(true);
+        //buttonJoin.text = "Joining Room..";
+        //PhotonNetwork.JoinRandomOrCreateRoom(); //Either creates or joins a random room
+    }
+
+    public void OnClickCreateRoom()
+    {
+        if (roomInput.text.Length >= 1)
+        {
+            PhotonNetwork.CreateRoom(roomInput.text, new RoomOptions() { MaxPlayers = 4 });
+            PhotonNetwork.NickName = usernameInput.text; //+ "-" + chosenCharacter;
+            enterRoom.text = "Joining Room..";
+        }
+    }
+
+    //Gets called when the player has joined a room
+    public override void OnJoinedRoom()
+    {
+        base.OnJoinedRoom();
+        networkStatus = "Room Joined";
+        roomName.text = "Room Name: " + PhotonNetwork.CurrentRoom.Name;
+        canvasPanel.SetActive(true);
+        photonPanel.SetActive(false);
+        UpdatePlayerList();
+        characterSelect.GetComponent<CharacterSelect>().LoadCharacter();
+        playerSpawner.GetComponent<PlayerSpawner>();
+        playerSpawner.SpawnPlayer();
+    }
+
+
+    public override void OnRoomListUpdate(List<RoomInfo> roomList)
+    {
+        if (Time.time >= nextUpdateTime)
+        {
+            UpdateRoomList(roomList);
+            nextUpdateTime = Time.time + timeBetweenUpdates;
+        }
+
+    }
+
+    void UpdateRoomList(List<RoomInfo> list)
+    {
+        foreach (RoomItem item in roomItemsList)
+        {
+            Destroy(item.gameObject);
+        }
+        roomItemsList.Clear();
+
+
+        foreach (RoomInfo room in list)
+        {
+            RoomItem newRoom = Instantiate(roomItemPrefab, contentObject);
+            newRoom.SetRoomName(room.Name);
+            roomItemsList.Add(newRoom);
+        }
+    }
+
+    public void JoinRoom(string roomName)
+    {
+        PhotonNetwork.JoinRoom(roomName);
+        PhotonNetwork.AutomaticallySyncScene = true;
+        enterRoom.text = "Joining Room..";
+        //SpawnPlayer();
+    }
+
+    public void OnClickLeaveRoom()
+    {
+        buttonLeave.text = "Leaving...";
+        PhotonNetwork.LeaveRoom();
+        lobbyPanel.SetActive(true);
+    }
+
+    public void SetCharacter(string characterName)
+    {
+        //chosenCharacter = characterName;
+    }
+
+    public override void OnPlayerEnteredRoom(Player newPlayer)
+    {
+        UpdatePlayerList();
+    }
+
+    public override void OnPlayerLeftRoom(Player otherPlayer)
+    {
+        UpdatePlayerList();
+    }
+
+    void UpdatePlayerList()
+    {
+        foreach (ReadyCheck item in readyCheckList)
+        {
+            Destroy(item.gameObject);
+        }
+        readyCheckList.Clear();
+
+        if (PhotonNetwork.CurrentRoom == null)
+        {
+            return;
+        }
+
+        foreach (KeyValuePair<int, Player> player in PhotonNetwork.CurrentRoom.Players)
+        {
+            ReadyCheck newPlayerItem = Instantiate(rcPrefab, rcParent);
+            newPlayerItem.SetPlayerInfo(player.Value);
+            readyCheckList.Add(newPlayerItem);
+
+/*            object isPlayerReady;
+            if (p.CustomProperties.TryGetValue(GameManager.PLAYER_READY, out isPlayerReady))
+            {
+                entry.GetComponent<PlayerListEntry>().SetPlayerReady((bool)isPlayerReady);
+            }*/
+        }
+    }
+
+
+    #region//------READYCHECK TESTING--------\\\
+
+    ExitGames.Client.Photon.Hashtable playerProperties = new ExitGames.Client.Photon.Hashtable();
+    [Header("ReadyCheck")]
+    public Image readyTick;
+
+    /*    private bool CheckPlayersReady()
+        {
+            if (!PhotonNetwork.IsMasterClient)
+            {
+                return false;
+            }
+
+            foreach (Player p in PhotonNetwork.PlayerList)
+            {
+                object isPlayerReady;
+                if (p.CustomProperties.TryGetValue(GameManager.PLAYER_READY, out isPlayerReady))
+                {
+                    if (!(bool)isPlayerReady)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }*/
+
+
+
+    bool isReady = false;
+    private bool isPlayerReady;
+
+    public void OnClickReady()
+    {
+        if (Input.GetKeyDown(KeyCode.E))
+        {
+            //set player status as 'ready
+            readyTick.enabled = true; //fix image
+            //OnReady();
+        }
+
+    }
+
+/*    public void OnReady()
+    {
+        if (isReady)
+            isReady = false;
+        else isReady = true;
+
+        if (isReady)
+            readyTick.SetActive(false);
+        else
+            readyTick.SetActive(true);
+
+        if (PhotonNetwork.IsMasterClient)
+        {
+
+        }
+
+
+    }*/
+
+    public void SetPlayerReady(bool playerReady)
+    {
+        
+    }
+
+    #endregion
+}
